@@ -1,0 +1,237 @@
+
+#include <Adafruit_Fingerprint.h> 
+#include <SoftwareSerial.h>
+#include <LiquidCrystal_I2C.h>
+
+// Inisialisasi LCD
+LiquidCrystal_I2C lcd(0x27, 16, 2);
+
+SoftwareSerial mySerial(2, 3);
+Adafruit_Fingerprint finger = Adafruit_Fingerprint(&mySerial);
+
+// Variabel untuk melacak waktu
+unsigned long previousMillis = 0;
+const long interval = 1000;
+int seconds = 0;
+int minutes = 59;
+int hours = 10;
+
+// Struktur data untuk menyimpan nama berdasarkan ID
+struct {
+  uint8_t id;
+  const char *name;
+} fingerprints[] = {
+  {1, "Asep"},
+  {2, "Alice"},
+  {3, "Bob"},
+  // Tambahkan nama dan ID sesuai kebutuhan
+};
+
+void setup()  
+{
+  // Inisialisasi komunikasi serial
+  Serial.begin(9600);
+  while (!Serial); 
+  delay(100);
+  pinMode(13, OUTPUT);
+  
+  // Inisialisasi LCD
+  lcd.init();
+  lcd.print("Init...");
+  lcd.backlight();
+
+  Serial.println("Program Dasar Akses Sidik Jari Arduino");
+
+  // set the data rate for the sensor serial port
+  finger.begin(57600);
+  
+  if (finger.verifyPassword()) {
+    Serial.println("Found fingerprint sensor!");
+    lcd.setCursor(0, 1);
+    lcd.print("Sensor Found!");
+  } else {
+    Serial.println("Did not find fingerprint sensor :(");
+    lcd.setCursor(0, 1);
+    lcd.print("Sensor Not Found");
+    while (1) { delay(1); }
+  }
+  Serial.println("Waiting for valid finger...");
+  lcd.clear();
+  lcd.setCursor(0, 1);
+  lcd.print("Standby");
+
+  // Tunggu input waktu awal dari serial monitor
+  setTimeFromSerial();
+}
+
+void loop()                     
+{
+  // Perbarui waktu
+  updateClock();
+
+  // Periksa sidik jari
+  getFingerprintID();
+  delay(50);  // don't need to run this at full speed.
+
+  // Periksa apakah ada input waktu baru dari serial monitor
+  if (Serial.available()) {
+    setTimeFromSerial();
+  }
+}
+
+void updateClock() {
+  unsigned long currentMillis = millis();
+
+  if (currentMillis - previousMillis >= interval) {
+    previousMillis = currentMillis;
+    seconds++;
+
+    if (seconds >= 60) {
+      seconds = 0;
+      minutes++;
+
+      if (minutes >= 60) {
+        minutes = 0;
+        hours++;
+
+        if (hours >= 24) {
+          hours = 0;
+        }
+      }
+    }
+
+    displayTime();
+  }
+}
+
+void displayTime() {
+  char timeString[9];
+  sprintf(timeString, "%02d:%02d:%02d", hours, minutes, seconds);
+  lcd.setCursor(0, 0);
+  lcd.print(timeString);
+}
+
+void setTimeFromSerial() {
+  if (Serial.available() > 0) {
+    String input = Serial.readString();
+    if (input.length() >= 8) {
+      hours = input.substring(0, 2).toInt();
+      minutes = input.substring(3, 5).toInt();
+      seconds = input.substring(6, 8).toInt();
+
+      if (hours >= 0 && hours < 24 && minutes >= 0 && minutes < 60 && seconds >= 0 && seconds < 60) {
+        Serial.println("Time set to: " + input);
+      } else {
+        Serial.println("Invalid time format. Please enter time as HH:MM:SS.");
+      }
+    } else {
+      Serial.println("Invalid time format. Please enter time as HH:MM:SS.");
+    }
+  }
+}
+
+void getFingerprintID() {
+  uint8_t p = finger.getImage();
+  switch (p) {
+    case FINGERPRINT_OK:
+      Serial.println("Image taken");
+      lcd.setCursor(0, 1);
+      break;
+    case FINGERPRINT_NOFINGER:
+      // Serial.println(".");
+      return;
+    case FINGERPRINT_PACKETRECIEVEERR:
+      Serial.println("Communication error");
+      lcd.setCursor(0, 1);
+      lcd.print("Comm error     ");
+      return;
+    case FINGERPRINT_IMAGEFAIL:
+      Serial.println("Imaging error");
+      lcd.setCursor(0, 1);
+      lcd.print("Imaging error  ");
+      return;
+    default:
+      Serial.println("Unknown error");
+      lcd.setCursor(0, 1);
+      lcd.print("Unknown error  ");
+      return;
+  }
+
+  // OK success!
+  p = finger.image2Tz();
+  switch (p) {
+    case FINGERPRINT_OK:
+      Serial.println("Image converted");
+      lcd.setCursor(0, 1);
+      break;
+    case FINGERPRINT_IMAGEMESS:
+      Serial.println("Image too messy");
+      lcd.setCursor(0, 1);
+      lcd.print("Img too messy  ");
+      return;
+    case FINGERPRINT_PACKETRECIEVEERR:
+      Serial.println("Communication error");
+      lcd.setCursor(0, 1);
+      lcd.print("Comm error     ");
+      return;
+    case FINGERPRINT_FEATUREFAIL:
+      Serial.println("Could not find fingerprint features");
+      lcd.setCursor(0, 1);
+      lcd.print("Feature error  ");
+      return;
+    case FINGERPRINT_INVALIDIMAGE:
+      Serial.println("Could not find fingerprint features");
+      lcd.setCursor(0, 1);
+      lcd.print("Feature error  ");
+      return;
+    default:
+      Serial.println("Unknown error");
+      lcd.setCursor(0, 1);
+      lcd.print("Unknown error  ");
+      return;
+  }
+
+  // OK converted!
+  p = finger.fingerFastSearch();
+  if (p == FINGERPRINT_OK) {
+    Serial.println("Found a print match!");
+
+    // Ubah ID menjadi nama
+    for (size_t i = 0; i < sizeof(fingerprints) / sizeof(fingerprints[0]); i++) {
+      if (fingerprints[i].id == finger.fingerID) {
+        Serial.print("Matched ID #");
+        Serial.print(finger.fingerID);
+        Serial.print(" with Name: ");
+        Serial.println(fingerprints[i].name);
+        lcd.setCursor(0, 1);
+        lcd.print(fingerprints[i].name);
+        lcd.print(" Hadir");
+
+        delay(2000); // Tampilkan nama selama 2 detik
+        lcd.setCursor(0, 1);
+        lcd.print("Ready          ");  // Kembali ke status "Ready" setelah menampilkan nama
+        break;
+      }
+    }
+  } else if (p == FINGERPRINT_PACKETRECIEVEERR) {
+    Serial.println("Communication error");
+    lcd.setCursor(0, 1);
+    lcd.print("Comm error     ");
+    return;
+  } else if (p == FINGERPRINT_NOTFOUND) {
+    Serial.println("Did not find a match");
+    lcd.setCursor(0, 1);
+    lcd.print("No match       ");
+    delay(1000);
+    return;
+  } else {
+    Serial.println("Unknown error");
+    lcd.setCursor(0, 1);
+    lcd.print("Unknown error  ");
+    return;
+  }
+
+  digitalWrite(13, HIGH);
+  delay(1000);
+  digitalWrite(13, LOW);
+}
